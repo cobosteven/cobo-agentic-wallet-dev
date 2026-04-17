@@ -5,7 +5,7 @@ set -euo pipefail
 # Re-running is safe: existing binaries are skipped.
 
 CAW_BASE_URL="${CAW_BASE_URL:-https://download.agenticwallet.cobo.com/binary-release}"
-CAW_VERSION="${CAW_VERSION:-v0.2.66}"
+CAW_VERSION="${CAW_VERSION:-v0.2.67}"
 TSS_BASE_URL="${TSS_BASE_URL:-https://download.tss.cobo.com/binary-release/latest}"
 INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.cobo-agentic-wallet}"
 BIN_DIR="${BIN_DIR:-$INSTALL_ROOT/bin}"
@@ -154,7 +154,7 @@ main() {
   [[ -n "$caw_pid" ]] && wait_job_or_fail "$caw_pid" "$caw_log" "caw download"
   [[ -n "$tss_pid" ]] && wait_job_or_fail "$tss_pid" "$tss_log" "tss download"
 
-  echo "[3/3] Done. caw $("$BIN_DIR/caw" -v) at $BIN_DIR/caw, TSS at $CACHE_TSS_DIR"
+  echo "[3/3] Done. caw $("$BIN_DIR/caw" --version) at $BIN_DIR/caw, TSS at $CACHE_TSS_DIR"
 }
 
 main
