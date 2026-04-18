@@ -5,7 +5,7 @@ set -euo pipefail
 # Re-running is safe: existing binaries are skipped.
 
 CAW_BASE_URL="${CAW_BASE_URL:-https://download.agenticwallet.cobo.com/binary-release}"
-CAW_VERSION="${CAW_VERSION:-v0.2.67}"
+CAW_VERSION="${CAW_VERSION:-v0.2.70}"
 TSS_BASE_URL="${TSS_BASE_URL:-https://download.tss.cobo.com/binary-release/latest}"
 INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.cobo-agentic-wallet}"
 BIN_DIR="${BIN_DIR:-$INSTALL_ROOT/bin}"

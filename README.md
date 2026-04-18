@@ -20,6 +20,7 @@ Instead of giving an agent a private key, Cobo Agentic Wallet gives it a control
 
 [![PyPI version](https://img.shields.io/pypi/v/cobo-agentic-wallet)](https://pypi.org/project/cobo-agentic-wallet/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cobo-agentic-wallet)](https://pypi.org/project/cobo-agentic-wallet/)
+[![npm version](https://img.shields.io/npm/v/@cobo/agentic-wallet)](https://www.npmjs.com/package/@cobo/agentic-wallet)
 [![License](https://img.shields.io/github/license/CoboGlobal/cobo-agentic-wallet-python-sdk)](https://github.com/CoboGlobal/cobo-agentic-wallet-python-sdk/blob/main/LICENSE)
 
 ## Related CAW repositories
@@ -28,7 +29,6 @@ These repos are expected CAW open-source entry points. Placeholder links are inc
 
 - [CAW Python SDK](https://github.com/CoboGlobal/cobo-agentic-wallet-python-sdk)
 - [CAW TypeScript SDK](https://github.com/CoboGlobal/cobo-agentic-wallet-typescript-sdk)
-- [CAW Golang SDK](https://github.com/CoboGlobal/cobo-agentic-wallet-go-sdk)
 - [CAW CLI](https://github.com/CoboGlobal/cobo-agentic-wallet-cli)
 
 ## What this repo includes
