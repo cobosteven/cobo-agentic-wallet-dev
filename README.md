@@ -131,37 +131,38 @@ npm install @cobo/agentic-wallet
 **Python:**
 
 ```python
+"""Canonical Python SDK example for the current CAW onboarding model.
+
+Flow:
+1. submit a pact with an inline transfer policy
+2. wait until the pact is active (owner approval in the Cobo Agentic Wallet app)
+3. execute one compliant transfer using the pact-scoped API key
+4. trigger one denial (amount exceeds the policy cap) and log the structured error
+5. inspect recent audit log entries for allowed/denied results
+"""
+
 import asyncio
-import json
 import os
 import time
 
 from cobo_agentic_wallet.client import WalletAPIClient
+from cobo_agentic_wallet.errors import PolicyDeniedError
 
 CHAIN_ID = "SETH"
 TOKEN_ID = "SETH"
-DESTINATION = "0x1111111111111111111111111111111111111111"
 ALLOWED_AMOUNT = "0.001"
 DENIED_AMOUNT = "0.005"
 DENY_THRESHOLD = "0.002"
-
-
-def parse_api_error(exc: Exception) -> dict:
-    """Extract the structured error payload from an ApiException body."""
-    body = getattr(exc, "body", None)
-    if not body:
-        return {}
-    try:
-        payload = json.loads(body)
-    except (TypeError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 async def main() -> None:
     api_url = os.environ["AGENT_WALLET_API_URL"]
     api_key = os.environ["AGENT_WALLET_API_KEY"]
     wallet_id = os.environ["AGENT_WALLET_WALLET_ID"]
+    destination = os.environ.get(
+        "CAW_DESTINATION",
+        "0x1111111111111111111111111111111111111111",
+    )
 
     client = WalletAPIClient(base_url=api_url, api_key=api_key)
 
@@ -181,7 +182,10 @@ async def main() -> None:
                         "type": "transfer",
                         "rules": {
                             "effect": "allow",
-                            "when": {"chain_in": [CHAIN_ID], "token_in": [{"chain_id": CHAIN_ID, "token_id": TOKEN_ID}]},
+                            "when": {
+                                "chain_in": [CHAIN_ID],
+                                "token_in": [{"chain_id": CHAIN_ID, "token_id": TOKEN_ID}],
+                            },
                             "deny_if": {"amount_gt": DENY_THRESHOLD},
                         },
                     }
@@ -218,11 +222,13 @@ async def main() -> None:
 
         try:
             # Step 4: Execute an allowed transfer (within the deny threshold).
-            print(f"[4/6] Submitting allowed transfer: {ALLOWED_AMOUNT} {TOKEN_ID} -> {DESTINATION}")
+            print(
+                f"[4/6] Submitting allowed transfer: {ALLOWED_AMOUNT} {TOKEN_ID} -> {destination}"
+            )
             allowed = await pact_client.transfer_tokens(
                 wallet_id,
                 chain_id=CHAIN_ID,
-                dst_addr=DESTINATION,
+                dst_addr=destination,
                 token_id=TOKEN_ID,
                 amount=ALLOWED_AMOUNT,
             )
@@ -233,26 +239,47 @@ async def main() -> None:
                 f"hash={allowed.get('transaction_hash') or '-'}"
             )
 
-            # Step 5: Trigger a policy denial (amount exceeds the deny threshold).
-            print(f"[5/6] Submitting transfer that should be blocked: {DENIED_AMOUNT} {TOKEN_ID} -> {DESTINATION}")
+            # Step 5: Trigger a policy denial (amount exceeds the deny threshold),
+            # then follow the denial guidance and retry with a compliant amount.
+            print(
+                f"[5/6] Submitting transfer that should be blocked: "
+                f"{DENIED_AMOUNT} {TOKEN_ID} -> {destination}"
+            )
             try:
                 await pact_client.transfer_tokens(
                     wallet_id,
                     chain_id=CHAIN_ID,
-                    dst_addr=DESTINATION,
+                    dst_addr=destination,
                     token_id=TOKEN_ID,
                     amount=DENIED_AMOUNT,
                 )
-            except Exception as exc:
-                payload = parse_api_error(exc)
-                err = payload.get("error") or {}
+            except PolicyDeniedError as exc:
+                denial = exc.denial
                 print(
-                    f"      DENIED as expected: http={getattr(exc, 'status', '-')} "
-                    f"code={err.get('code', '-')} reason={err.get('reason', '-')}"
+                    f"      DENIED as expected: http={exc.status_code} "
+                    f"code={denial.code} reason={denial.reason}"
                 )
-                suggestion = payload.get("suggestion")
-                if suggestion:
-                    print(f"      suggestion: {suggestion}")
+                if denial.details:
+                    print(f"      details: {denial.details}")
+                if denial.suggestion:
+                    print(f"      suggestion: {denial.suggestion}")
+
+                print(
+                    f"      retrying with compliant amount {ALLOWED_AMOUNT} {TOKEN_ID}..."
+                )
+                retry = await pact_client.transfer_tokens(
+                    wallet_id,
+                    chain_id=CHAIN_ID,
+                    dst_addr=destination,
+                    token_id=TOKEN_ID,
+                    amount=ALLOWED_AMOUNT,
+                )
+                print(
+                    f"      RETRY ALLOWED: tx_id={retry.get('id')} "
+                    f"status={retry.get('status')} ({retry.get('status_display') or '-'}) "
+                    f"request_id={retry.get('request_id')} "
+                    f"hash={retry.get('transaction_hash') or '-'}"
+                )
         finally:
             await pact_client.close()
 
@@ -275,6 +302,17 @@ if __name__ == "__main__":
 **TypeScript:**
 
 ```typescript
+/**
+ * Canonical TypeScript SDK example for the current CAW onboarding model.
+ *
+ * Flow:
+ * 1. submit a pact with an inline transfer policy
+ * 2. wait until the pact is active (owner approval in the Cobo Agentic Wallet app)
+ * 3. execute one compliant transfer using the pact-scoped API key
+ * 4. trigger one denial (amount exceeds the policy cap) and log the structured error
+ * 5. inspect recent audit log entries for allowed/denied results
+ */
+
 import {
   AuditApi,
   Configuration,
@@ -284,18 +322,21 @@ import {
 
 const CHAIN_ID = 'SETH';
 const TOKEN_ID = 'SETH';
-const DESTINATION = '0x1111111111111111111111111111111111111111';
 const ALLOWED_AMOUNT = '0.001';
 const DENIED_AMOUNT = '0.005';
 const DENY_THRESHOLD = '0.002';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 interface ApiErrorPayload {
-  error?: { code?: string; reason?: string };
+  error?: { code?: string; reason?: string; details?: Record<string, string> };
   suggestion?: string;
 }
 
-function parseApiError(error: unknown): { http: number | string; payload: ApiErrorPayload } {
-  const response = (error as { response?: { status?: number; data?: unknown } })?.response;
+function parseApiError(err: unknown): { http: number | string; payload: ApiErrorPayload } {
+  const response = (err as { response?: { status?: number; data?: unknown } }).response;
   const http = response?.status ?? '-';
   const data = response?.data;
   const payload: ApiErrorPayload =
@@ -307,12 +348,17 @@ async function main(): Promise<void> {
   const basePath = process.env.AGENT_WALLET_API_URL!;
   const apiKey = process.env.AGENT_WALLET_API_KEY!;
   const walletId = process.env.AGENT_WALLET_WALLET_ID!;
+  const destination =
+    process.env.CAW_DESTINATION ?? '0x1111111111111111111111111111111111111111';
 
   const ownerConfig = new Configuration({ apiKey, basePath });
   const pactsApi = new PactsApi(ownerConfig);
+  const auditApi = new AuditApi(ownerConfig);
 
+  // Step 1: Submit a pact requesting transfer permissions for 24 hours.
   console.log(
-    `[1/6] Submitting pact (allow ${CHAIN_ID}/${TOKEN_ID} transfers, deny if amount > ${DENY_THRESHOLD})...`,
+    `[1/6] Submitting pact (allow ${CHAIN_ID}/${TOKEN_ID} transfers, ` +
+      `deny if amount > ${DENY_THRESHOLD})...`,
   );
   const pactResp = await pactsApi.submitPact({
     wallet_id: walletId,
@@ -324,60 +370,56 @@ async function main(): Promise<void> {
           type: 'transfer',
           rules: {
             effect: 'allow',
-            when: { chain_in: [CHAIN_ID], token_in: [{ chain_id: CHAIN_ID, token_id: TOKEN_ID }] },
+            when: {
+              chain_in: [CHAIN_ID],
+              token_in: [{ chain_id: CHAIN_ID, token_id: TOKEN_ID }],
+            },
             deny_if: { amount_gt: DENY_THRESHOLD },
           },
         },
       ],
-      completion_conditions: [
-        { type: 'time_elapsed', threshold: '86400' },
-      ],
+      completion_conditions: [{ type: 'time_elapsed', threshold: '86400' }],
     },
   });
-
   const pactId = pactResp.data.result.pact_id;
   console.log(`      pact submitted: id=${pactId}`);
 
+  // Step 2: Poll until the owner approves the pact.
   console.log('[2/6] Waiting for owner approval in the Cobo Agentic Wallet app...');
   const started = Date.now();
-  let lastStatus: string | undefined;
   let pactApiKey: string | undefined;
-
-  while (true) {
+  let lastStatus: string | undefined;
+  while (!pactApiKey) {
     const pact = (await pactsApi.getPact(pactId)).data.result;
-    if (pact.status !== lastStatus) {
+    const status = pact.status ?? '';
+    if (status !== lastStatus) {
       const elapsed = Math.floor((Date.now() - started) / 1000);
-      console.log(`      pact status -> ${pact.status} (elapsed ${elapsed}s)`);
-      lastStatus = pact.status;
+      console.log(`      pact status -> ${status} (elapsed ${elapsed}s)`);
+      lastStatus = status;
     }
-
-    if (pact.status === 'active') {
+    if (status === 'active') {
       pactApiKey = pact.api_key;
       break;
     }
-
-    if (['rejected', 'expired', 'revoked', 'completed'].includes(pact.status)) {
-      throw new Error(`Pact reached terminal status before use: ${pact.status}`);
+    if (['rejected', 'expired', 'revoked', 'completed'].includes(status)) {
+      throw new Error(`Pact reached terminal status before use: ${status}`);
     }
-
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await sleep(5000);
   }
 
-  if (!pactApiKey) {
-    throw new Error('Active pact did not return a pact-scoped API key');
-  }
-
+  // Step 3: Use the pact-scoped API key for all subsequent calls.
   console.log('[3/6] Pact is active; switching to pact-scoped API key.');
-
   const pactConfig = new Configuration({ apiKey: pactApiKey, basePath });
   const txApi = new TransactionsApi(pactConfig);
-  const auditApi = new AuditApi(ownerConfig);
 
-  console.log(`[4/6] Submitting allowed transfer: ${ALLOWED_AMOUNT} ${TOKEN_ID} -> ${DESTINATION}`);
+  // Step 4: Execute an allowed transfer (within the deny threshold).
+  console.log(
+    `[4/6] Submitting allowed transfer: ${ALLOWED_AMOUNT} ${TOKEN_ID} -> ${destination}`,
+  );
   const allowed = (
     await txApi.transferTokens(walletId, {
       chain_id: CHAIN_ID,
-      dst_addr: DESTINATION,
+      dst_addr: destination,
       token_id: TOKEN_ID,
       amount: ALLOWED_AMOUNT,
     })
@@ -387,13 +429,16 @@ async function main(): Promise<void> {
       `request_id=${allowed.request_id} hash=${allowed.transaction_hash ?? '-'}`,
   );
 
+  // Step 5: Trigger a policy denial (amount exceeds the deny threshold),
+  // then follow the denial guidance and retry with a compliant amount.
   console.log(
-    `[5/6] Submitting transfer that should be blocked: ${DENIED_AMOUNT} ${TOKEN_ID} -> ${DESTINATION}`,
+    `[5/6] Submitting transfer that should be blocked: ` +
+      `${DENIED_AMOUNT} ${TOKEN_ID} -> ${destination}`,
   );
   try {
     await txApi.transferTokens(walletId, {
       chain_id: CHAIN_ID,
-      dst_addr: DESTINATION,
+      dst_addr: destination,
       token_id: TOKEN_ID,
       amount: DENIED_AMOUNT,
     });
@@ -401,16 +446,48 @@ async function main(): Promise<void> {
     const { http, payload } = parseApiError(error);
     const err = payload.error ?? {};
     console.log(
-      `      DENIED as expected: http=${http} code=${err.code ?? '-'} reason=${err.reason ?? '-'}`,
+      `      DENIED as expected: http=${http} ` +
+        `code=${err.code ?? '-'} reason=${err.reason ?? '-'}`,
     );
+    if (err.details) {
+      console.log(`      details: ${JSON.stringify(err.details)}`);
+    }
     if (payload.suggestion) {
       console.log(`      suggestion: ${payload.suggestion}`);
     }
+
+    console.log(
+      `      retrying with compliant amount ${ALLOWED_AMOUNT} ${TOKEN_ID}...`,
+    );
+    const retry = (
+      await txApi.transferTokens(walletId, {
+        chain_id: CHAIN_ID,
+        dst_addr: destination,
+        token_id: TOKEN_ID,
+        amount: ALLOWED_AMOUNT,
+      })
+    ).data.result;
+    console.log(
+      `      RETRY ALLOWED: tx_id=${retry.id} status=${retry.status} (${retry.status_display ?? '-'}) ` +
+        `request_id=${retry.request_id} hash=${retry.transaction_hash ?? '-'}`,
+    );
   }
 
+  // Step 6: Verify allowed and denied events in audit logs.
   console.log('[6/6] Fetching recent audit entries for this wallet...');
-  const logs = await auditApi.listAuditLogs(walletId, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 20);
-  const items = logs.data.result.items ?? [];
+  const logs = await auditApi.listAuditLogs(
+    walletId,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    20,
+  );
+  const items = (logs.data.result as { items?: Array<{ result?: string }> })?.items ?? [];
   const allowedCount = items.filter(item => item.result === 'allowed').length;
   const deniedCount = items.filter(item => item.result === 'denied').length;
   console.log(
@@ -503,16 +580,16 @@ Runnable examples live under [`examples/`](examples/):
 - [Direct SDK](examples/python/direct_sdk.py)
 - [LangChain](examples/python/langchain_agent.py)
 - [OpenAI Agents SDK](examples/python/openai_agent.py)
-- [Agno](examples/python/agno_agent.py)
-- [CrewAI](examples/python/crewai_agent.py)
+- Agno — Coming soon
+- CrewAI — Coming soon
 
 **TypeScript:**
 
 - [Direct SDK](examples/typescript/direct_sdk.ts)
 - [LangChain](examples/typescript/langchain_agent.ts)
 - [OpenAI Agents SDK](examples/typescript/openai_agent.ts)
-- [Vercel AI SDK](examples/typescript/vercel_ai_sdk.ts)
-- [Mastra](examples/typescript/mastra_agent.ts)
+- Vercel AI SDK — Coming soon
+- Mastra — Coming soon
 
 ## Skills
 
