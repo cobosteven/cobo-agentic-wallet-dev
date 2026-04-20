@@ -8,6 +8,10 @@ from typing import Any
 from cobo_agentic_wallet import WalletAPIClient
 from cobo_agentic_wallet.integrations.langchain import CoboAgentWalletToolkit
 
+from _shared.env import DemoEnv
+from _shared.prompt import build_demo_prompt
+from _shared.tools import DEFAULT_INCLUDE_TOOLS
+
 
 def _truncate(value: Any, limit: int = 120) -> str:
     text = value if isinstance(value, str) else json.dumps(value, default=str)
@@ -16,7 +20,7 @@ def _truncate(value: Any, limit: int = 120) -> str:
 
 def _format_tool_args(args: dict[str, Any]) -> str:
     skip = {"wallet_uuid", "wallet_id"}
-    return ", ".join(f"{k}={_truncate(v, 60)}" for k, v in args.items() if k not in skip) or "-"
+    return ", ".join(f"{k}={_truncate(v, 400)}" for k, v in args.items() if k not in skip) or "-"
 
 
 def _summarise_tool_result(raw: Any) -> str:
@@ -47,6 +51,9 @@ def _summarise_tool_result(raw: Any) -> str:
         err = payload["error"]
         if isinstance(err, dict):
             return f"ERROR {err.get('code', '-')}: {err.get('reason', '-')}"
+        message = payload.get("message")
+        if isinstance(message, str) and message:
+            return f"ERROR {err}: {_truncate(message, 600)}"
         return f"ERROR {err}"
     return _truncate(payload)
 
@@ -80,26 +87,10 @@ def print_agent_result(result: Any) -> None:
 
 
 async def main() -> None:
-    api_url = os.environ["AGENT_WALLET_API_URL"]
-    api_key = os.environ["AGENT_WALLET_API_KEY"]
-    wallet_uuid = os.environ["AGENT_WALLET_WALLET_ID"]
-    destination = os.environ.get(
-        "CAW_DESTINATION",
-        "0x1111111111111111111111111111111111111111",
-    )
+    env = DemoEnv.load()
 
-    async with WalletAPIClient(base_url=api_url, api_key=api_key) as client:
-        toolkit = CoboAgentWalletToolkit(
-            client=client,
-            include_tools=[
-                "submit_pact",
-                "get_pact",
-                "transfer_tokens",
-                "estimate_transfer_fee",
-                "get_transaction_record_by_request_id",
-                "get_audit_logs",
-            ],
-        )
+    async with WalletAPIClient(base_url=env.api_url, api_key=env.api_key) as client:
+        toolkit = CoboAgentWalletToolkit(client=client, include_tools=DEFAULT_INCLUDE_TOOLS)
         tools = toolkit.get_tools()
 
         try:
@@ -115,61 +106,22 @@ async def main() -> None:
                 return
 
             try:
+                from langchain.agents import create_agent
                 from langchain_openai import ChatOpenAI
             except ImportError as exc:
                 raise RuntimeError(
-                    "langchain-openai is required for the OpenAI model example. "
-                    "Install with: pip install langchain-openai"
+                    "langchain>=1.0 and langchain-openai are required for this example. "
+                    "Install with: pip install 'cobo-agentic-wallet[langchain]' langchain-openai"
                 ) from exc
 
-            prompt = (
-                f"Use wallet {wallet_uuid}. "
-                "Submit a pact for a controlled transfer task and wait until it is active. "
-                f"Using the newly created pact, transfer 0.001 SETH to {destination} on SETH. "
-                "Next, using the same pact, attempt 0.005 SETH. If denied, follow the denial "
-                "guidance and retry with a compliant amount. "
-                "Track the result by request_id and summarize what happened."
+            agent = create_agent(
+                model=ChatOpenAI(model="gpt-4.1-mini"),
+                tools=tools,
             )
-
-            # LangChain v1 API
-            try:
-                from langchain.agents import create_agent
-            except ImportError:
-                create_agent = None
-
-            if create_agent is not None:
-                agent = create_agent(
-                    model=ChatOpenAI(model="gpt-4.1-mini"),
-                    tools=tools,
-                )
-                result = await agent.ainvoke(
-                    {"messages": [{"role": "user", "content": prompt}]}
-                )
-                print_agent_result(result)
-                return
-
-            # Legacy pre-v1 API fallback
-            try:
-                from langchain.agents import AgentExecutor, create_openai_tools_agent
-                from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Unsupported langchain version detected. Install langchain>=1.0.0, "
-                    "or a compatible legacy release exposing create_openai_tools_agent."
-                ) from exc
-
-            llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
-            prompt_template = ChatPromptTemplate.from_messages(
-                [
-                    ("human", "{input}"),
-                    MessagesPlaceholder(variable_name="agent_scratchpad"),
-                ]
+            result = await agent.ainvoke(
+                {"messages": [{"role": "user", "content": build_demo_prompt(env)}]}
             )
-            agent = create_openai_tools_agent(llm, tools, prompt_template)
-            executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-            result = await executor.ainvoke({"input": prompt})
-            print("\nFinal answer:")
-            print(result.get("output", result))
+            print_agent_result(result)
         finally:
             await toolkit.aclose()
 

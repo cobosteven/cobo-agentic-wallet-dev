@@ -580,16 +580,16 @@ Runnable examples live under [`examples/`](examples/):
 - [Direct SDK](examples/python/direct_sdk.py)
 - [LangChain](examples/python/langchain_agent.py)
 - [OpenAI Agents SDK](examples/python/openai_agent.py)
-- Agno — Coming soon
-- CrewAI — Coming soon
+- [Agno](examples/python/agno_agent.py)
+- [CrewAI](examples/python/crewai_agent.py)
 
 **TypeScript:**
 
 - [Direct SDK](examples/typescript/direct_sdk.ts)
 - [LangChain](examples/typescript/langchain_agent.ts)
 - [OpenAI Agents SDK](examples/typescript/openai_agent.ts)
+- [Mastra](examples/typescript/mastra_agent.ts)
 - Vercel AI SDK — Coming soon
-- Mastra — Coming soon
 
 ## Skills
 
