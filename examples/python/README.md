@@ -8,17 +8,10 @@
 - [`langchain_agent.py`](./langchain_agent.py): LangChain v1 integration with a narrow CAW tool surface
 - [`openai_agent.py`](./openai_agent.py): OpenAI Agents SDK integration with denial-aware retries
 
-## Shared helpers
-
-The four agent demos share a small [`_shared/`](./_shared) package so each
-script can stay focused on framework-specific wiring:
-
-- [`_shared/env.py`](./_shared/env.py): `DemoEnv` dataclass and `DemoEnv.load()` for reading required env vars
-- [`_shared/prompt.py`](./_shared/prompt.py): `build_demo_prompt(env)` produces the same transfer-allow-then-deny prompt across frameworks
-- [`_shared/tools.py`](./_shared/tools.py): `DEFAULT_INCLUDE_TOOLS` — the canonical pact-first tool surface exposed to the LLM
-
-`direct_sdk.py` does not use `_shared/`; it is a linear tutorial that walks
-through the SDK manually.
+Every script is self-contained — copy a single file and it runs once the
+environment variables below are set. The four agent demos share the same
+demo prompt, included tool surface, and env-var names by convention so their
+traces are directly comparable across frameworks.
 
 ## Environment
 

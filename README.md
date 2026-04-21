@@ -589,7 +589,7 @@ Runnable examples live under [`examples/`](examples/):
 - [LangChain](examples/typescript/langchain_agent.ts)
 - [OpenAI Agents SDK](examples/typescript/openai_agent.ts)
 - [Mastra](examples/typescript/mastra_agent.ts)
-- Vercel AI SDK — Coming soon
+- [Vercel AI SDK](examples/typescript/vercel_ai_sdk.ts)
 
 ## Skills
 

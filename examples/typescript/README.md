@@ -1,7 +1,7 @@
 # TypeScript Examples
 
 Runnable TypeScript examples for the Cobo Agentic Wallet (CAW), demonstrating
-the pact-first usage model across four entry points.
+the pact-first usage model across five entry points.
 
 ## Examples
 
@@ -13,26 +13,15 @@ the pact-first usage model across four entry points.
   integration with strict-schema compatible tools.
 - [`mastra_agent.ts`](./mastra_agent.ts) — Mastra (`@mastra/core`) integration
   using `createTool({...})` and `agent.generate(...)`.
+- [`vercel_ai_sdk.ts`](./vercel_ai_sdk.ts) — Vercel AI SDK (`ai` v5)
+  integration using `tool({...})` and `generateText({...})`.
 
-Each agent example is deliberately structured as a short, top-to-bottom script
-so that the framework-specific parts (how tools are declared, how the agent is
-wired, and how tool-call traces are shaped) remain obvious at a glance.
-
-## Shared infrastructure (`./lib`)
-
-Plumbing that is identical across frameworks is factored into a small library
-so each example focuses on what is unique to its framework:
-
-| File | Responsibility |
-| --- | --- |
-| [`lib/env.ts`](./lib/env.ts) | Environment-variable loader with fail-fast validation. |
-| [`lib/clients.ts`](./lib/clients.ts) | Factories for owner-scoped and pact-scoped API clients; named-parameter wrapper for `listAuditLogs`. |
-| [`lib/pact-spec.ts`](./lib/pact-spec.ts) | Single source of truth for the demo policy — chain / token / amounts / `buildTransferPactSpec`. |
-| [`lib/pact-session.ts`](./lib/pact-session.ts) | `PactSessionStore`: maps `pact_id → api_key`, caches per-pact `TransactionsApi` instances. |
-| [`lib/errors.ts`](./lib/errors.ts) | `parseApiError` + `returnPolicyDenial` — turn service errors into a `DenialEnvelope` the LLM can act on. |
-| [`lib/prompt.ts`](./lib/prompt.ts) | Shared system prompt and demo user prompt so all agents solve the same task. |
-| [`lib/printer.ts`](./lib/printer.ts) | Framework-agnostic pretty-printer: `ToolCallRecord[]` → numbered trace + final answer. |
-| [`lib/context.ts`](./lib/context.ts) | `DemoContext.load()` bundles env + API clients + session store into one import. |
+Every file is **self-contained** — copy a single script into a fresh project,
+install the packages listed in `package.json`, set the environment variables
+below, and it runs. Each agent example is organised top-to-bottom into
+labelled sections (`// ─── Env ───`, `// ─── Pact session store ───`, `// ─── Tool definitions ───`, …)
+so the framework-specific parts stay easy to scan without having to chase
+imports across a shared library.
 
 ## Setup
 
@@ -64,6 +53,7 @@ npm run direct       # direct_sdk.ts
 npm run langchain    # langchain_agent.ts
 npm run openai       # openai_agent.ts
 npm run mastra       # mastra_agent.ts
+npm run vercel       # vercel_ai_sdk.ts
 ```
 
 Type-check all files without emitting:

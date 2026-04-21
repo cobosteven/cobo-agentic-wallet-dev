@@ -1,21 +1,21 @@
 /**
- * Mastra example using the current pact-first CAW usage model.
+ * Vercel AI SDK example using the current pact-first CAW usage model.
  *
  * This file is self-contained: copy it to a fresh project (plus the package
  * dependencies listed in README.md), set the env vars, and run it.
  *
- * What is specific to `@mastra/core` (and therefore framework-specific in this file):
- *   - the `createTool({...})` DSL with Zod `inputSchema`,
- *   - the `new Agent({ tools: { ... } })` shape — tools go into a record,
- *   - the `agent.generate(prompt)` output with separate `toolCalls` and
- *     `toolResults` arrays, each wrapping items in a `payload` field.
+ * What is specific to `ai` (Vercel AI SDK v5, and therefore framework-specific in this file):
+ *   - the `tool({...})` DSL with `inputSchema` (renamed from `parameters` in v5),
+ *   - the `generateText({ model, tools, system, prompt, stopWhen })` entry point,
+ *   - the `stopWhen: stepCountIs(N)` stop condition (replaces v4 `maxSteps`),
+ *   - `result.steps[]`, where each step exposes parallel `toolCalls` and
+ *     `toolResults` arrays keyed by `toolCallId`.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { openai } from '@ai-sdk/openai';
-import { Agent } from '@mastra/core/agent';
-import { createTool } from '@mastra/core/tools';
+import { generateText, stepCountIs, tool } from 'ai';
 import { z } from 'zod';
 
 import {
@@ -193,9 +193,7 @@ interface ToolCallRecord {
   result?: unknown;
 }
 
-// Mastra threads `__mastraMetadata` through tool args; hide it so the log
-// stays focused on the agent's actual inputs.
-const NOISY_ARG_KEYS = new Set<string>(['wallet_uuid', 'wallet_id', '__mastraMetadata']);
+const NOISY_ARG_KEYS = new Set<string>(['wallet_uuid', 'wallet_id']);
 
 function truncate(value: unknown, limit = 120): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
@@ -277,19 +275,19 @@ function printFinalAnswer(text: string | undefined): void {
   console.log(text || '(no final answer produced)');
 }
 
-// ─── Tool definitions (@mastra/core-specific) ────────────────────────────────
+// ─── Tool definitions (Vercel AI SDK-specific) ───────────────────────────────
+// In v5 the option is `inputSchema` (renamed from `parameters` in v4).
 
-const submitPactTool = createTool({
-  id: 'submit_pact',
+const submitPactTool = tool({
   description: 'Submit a pact and return the pact id.',
   inputSchema: z.object({
     wallet_id: z.string(),
     intent: z.string(),
   }),
-  execute: async (input) => {
+  execute: async ({ wallet_id, intent }) => {
     const response = await pactsApi.submitPact({
-      wallet_id: input.wallet_id,
-      intent: input.intent,
+      wallet_id,
+      intent,
       spec: buildTransferPactSpec(),
     });
     const result = response.data.result;
@@ -299,19 +297,17 @@ const submitPactTool = createTool({
   },
 });
 
-const getPactTool = createTool({
-  id: 'get_pact',
+const getPactTool = tool({
   description: 'Fetch a pact, including its status and api_key once active.',
   inputSchema: z.object({ pact_id: z.string() }),
-  execute: async (input) => {
-    const response = await pactsApi.getPact(input.pact_id);
+  execute: async ({ pact_id }) => {
+    const response = await pactsApi.getPact(pact_id);
     capturePactSession(response.data.result);
     return response.data.result;
   },
 });
 
-const estimateTransferFeeTool = createTool({
-  id: 'estimate_transfer_fee',
+const estimateTransferFeeTool = tool({
   description: 'Estimate fees for a token transfer before submitting it.',
   inputSchema: z.object({
     wallet_uuid: z.string(),
@@ -323,20 +319,19 @@ const estimateTransferFeeTool = createTool({
       .optional()
       .describe('Pact id. Pass it to estimate under pact-scoped permissions.'),
   }),
-  execute: async (input) => {
-    const api = txApiForPact(input.pact_id);
-    const response = await api.estimateTransferFee(input.wallet_uuid, {
+  execute: async ({ wallet_uuid, dst_addr, token_id, amount, pact_id }) => {
+    const api = txApiForPact(pact_id);
+    const response = await api.estimateTransferFee(wallet_uuid, {
       chain_id: CHAIN_ID,
-      dst_addr: input.dst_addr,
-      token_id: input.token_id,
-      amount: input.amount,
+      dst_addr,
+      token_id,
+      amount,
     });
     return response.data.result;
   },
 });
 
-const transferTool = createTool({
-  id: 'transfer_tokens',
+const transferTokensTool = tool({
   description:
     'Execute a policy-enforced transfer. A unique request_id is auto-generated ' +
     'and returned in the response; use that value to track or look up the tx later.',
@@ -350,14 +345,14 @@ const transferTool = createTool({
       .optional()
       .describe('Pact id from submit_pact / get_pact. REQUIRED to invoke under pact-scoped policy permissions.'),
   }),
-  execute: async (input) => {
+  execute: async ({ wallet_uuid, dst_addr, token_id, amount, pact_id }) => {
     return returnPolicyDenial(async () => {
-      const api = txApiForPact(input.pact_id);
-      const response = await api.transferTokens(input.wallet_uuid, {
+      const api = txApiForPact(pact_id);
+      const response = await api.transferTokens(wallet_uuid, {
         chain_id: CHAIN_ID,
-        dst_addr: input.dst_addr,
-        token_id: input.token_id,
-        amount: input.amount,
+        dst_addr,
+        token_id,
+        amount,
         request_id: randomUUID(),
       });
       return response.data.result;
@@ -365,46 +360,41 @@ const transferTool = createTool({
   },
 });
 
-const recordTool = createTool({
-  id: 'get_transaction_record_by_request_id',
+const getTransactionRecordByRequestIdTool = tool({
   description: 'Look up a transaction record by request id.',
   inputSchema: z.object({
     wallet_uuid: z.string(),
     request_id: z.string(),
   }),
-  execute: async (input) => {
-    const response = await recordsApi.getUserTransactionByRequestId(
-      input.wallet_uuid,
-      input.request_id,
-    );
+  execute: async ({ wallet_uuid, request_id }) => {
+    const response = await recordsApi.getUserTransactionByRequestId(wallet_uuid, request_id);
     return response.data.result;
   },
 });
 
-const auditTool = createTool({
-  id: 'get_audit_logs',
+const getAuditLogsTool = tool({
   description: 'List recent audit log entries for the wallet.',
   inputSchema: z.object({
     wallet_id: z.string(),
     limit: z.number().int().positive().optional(),
   }),
-  execute: async (input) => listRecentAuditLogs(input.wallet_id, input.limit),
+  execute: async ({ wallet_id, limit }) => listRecentAuditLogs(wallet_id, limit),
 });
 
 const tools = {
-  submitPactTool,
-  getPactTool,
-  estimateTransferFeeTool,
-  transferTool,
-  recordTool,
-  auditTool,
+  submit_pact: submitPactTool,
+  get_pact: getPactTool,
+  estimate_transfer_fee: estimateTransferFeeTool,
+  transfer_tokens: transferTokensTool,
+  get_transaction_record_by_request_id: getTransactionRecordByRequestIdTool,
+  get_audit_logs: getAuditLogsTool,
 };
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
-console.log('Registered Cobo Mastra tools:');
-for (const [key, t] of Object.entries(tools)) {
-  console.log(`  - ${key} (${t.id}): ${t.description}`);
+console.log('Registered Cobo Vercel AI SDK tools:');
+for (const [name, t] of Object.entries(tools)) {
+  console.log(`  - ${name}: ${t.description}`);
 }
 
 if (!env.openaiApiKey) {
@@ -412,44 +402,51 @@ if (!env.openaiApiKey) {
   process.exit(0);
 }
 
-const agent = new Agent({
-  id: 'cobo-operator',
-  name: 'cobo-operator',
+// `stepCountIs(N)` caps how many model→tool→model loops generateText runs.
+// The demo takes up to a dozen tool calls (pact lifecycle + retries) and the
+// final summary message counts as an extra step, so give it generous headroom.
+const result = await generateText({
   model: openai('gpt-4.1-mini'),
-  instructions: DEMO_SYSTEM_PROMPT,
+  system: DEMO_SYSTEM_PROMPT,
+  prompt: DEMO_USER_PROMPT,
   tools,
+  stopWhen: stepCountIs(20),
 });
 
-// `maxSteps` caps how many model→tool→model loops Mastra runs. The demo takes
-// up to a dozen tool calls (pact lifecycle + retries) and the final summary
-// message counts as an extra step, so give it generous headroom.
-const output = await agent.generate(DEMO_USER_PROMPT, { maxSteps: 20 });
+// ─── Vercel AI SDK → ToolCallRecord adapter ──────────────────────────────────
+// `result.steps[]` has one entry per model/tool turn. Each step exposes
+// parallel `toolCalls` and `toolResults` arrays that share `toolCallId`;
+// we flatten them into `ToolCallRecord[]` across all steps.
 
-// ─── Mastra → ToolCallRecord adapter ─────────────────────────────────────────
-// `agent.generate()` returns `toolCalls` and `toolResults` as two parallel
-// arrays. Each entry wraps its data in a `payload` with a stable `toolCallId`,
-// which we use to pair calls with their results.
-
-interface MastraToolCall {
-  payload: { toolCallId: string; toolName: string; args?: Record<string, unknown> };
+interface VercelToolCall {
+  toolCallId: string;
+  toolName: string;
+  input?: Record<string, unknown>;
 }
-interface MastraToolResult {
-  payload: { toolCallId: string; result?: unknown };
+interface VercelToolResult {
+  toolCallId: string;
+  output?: unknown;
 }
 
-function toRecords(calls: MastraToolCall[], results: MastraToolResult[]): ToolCallRecord[] {
+function toRecords(
+  steps: Array<{ toolCalls?: VercelToolCall[]; toolResults?: VercelToolResult[] }>,
+): ToolCallRecord[] {
   const byId = new Map<string, ToolCallRecord>();
-  for (const c of calls) {
-    byId.set(c.payload.toolCallId, { name: c.payload.toolName, args: c.payload.args });
-  }
-  for (const r of results) {
-    const existing = byId.get(r.payload.toolCallId);
-    if (existing) existing.result = r.payload.result;
+  for (const step of steps) {
+    for (const c of step.toolCalls ?? []) {
+      byId.set(c.toolCallId, { name: c.toolName, args: c.input });
+    }
+    for (const r of step.toolResults ?? []) {
+      const existing = byId.get(r.toolCallId);
+      if (existing) existing.result = r.output;
+    }
   }
   return [...byId.values()];
 }
 
-const calls = (output.toolCalls ?? []) as unknown as MastraToolCall[];
-const results = (output.toolResults ?? []) as unknown as MastraToolResult[];
-printToolCalls(toRecords(calls, results));
-printFinalAnswer(output.text);
+const steps = (result.steps ?? []) as unknown as Array<{
+  toolCalls?: VercelToolCall[];
+  toolResults?: VercelToolResult[];
+}>;
+printToolCalls(toRecords(steps));
+printFinalAnswer(result.text);

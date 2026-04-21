@@ -2,9 +2,7 @@
  * Canonical TypeScript SDK example for the current CAW onboarding model.
  *
  * No agent framework is involved — the code calls the SDK directly so readers
- * can see the pact lifecycle in its simplest form. Only a minimal subset of
- * `./lib` is reused (env parsing, the shared pact spec, and API-error parsing)
- * so that the six-step tutorial flow stays entirely local to this file.
+ * can see the pact lifecycle in its simplest form.
  *
  * Flow:
  *   1. submit a pact with an inline transfer policy
@@ -18,20 +16,82 @@
 import {
   AuditApi,
   Configuration,
+  type PactSpecInput,
   PactsApi,
   TransactionsApi,
 } from '@cobo/agentic-wallet';
 
-import { loadEnv } from './lib/env';
-import {
-  ALLOWED_AMOUNT,
-  CHAIN_ID,
-  DENIED_AMOUNT,
-  DENY_THRESHOLD,
-  TOKEN_ID,
-  buildTransferPactSpec,
-} from './lib/pact-spec';
-import { parseApiError } from './lib/errors';
+// ─── Env ─────────────────────────────────────────────────────────────────────
+
+const DEFAULT_DESTINATION = '0x1111111111111111111111111111111111111111';
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}. See README.md for the full list.`);
+  }
+  return value;
+}
+
+const env = {
+  basePath: requireEnv('AGENT_WALLET_API_URL'),
+  ownerKey: requireEnv('AGENT_WALLET_API_KEY'),
+  walletId: requireEnv('AGENT_WALLET_WALLET_ID'),
+  destination: process.env.CAW_DESTINATION ?? DEFAULT_DESTINATION,
+};
+
+// ─── Pact spec (single source of truth for the demo policy) ──────────────────
+
+const CHAIN_ID = 'SETH';
+const TOKEN_ID = 'SETH';
+const ALLOWED_AMOUNT = '0.001';
+const DENIED_AMOUNT = '0.005';
+const DENY_THRESHOLD = '0.002';
+const PACT_TTL_SECONDS = '86400';
+
+function buildTransferPactSpec(): PactSpecInput {
+  return {
+    policies: [
+      {
+        name: 'max-tx-limit',
+        type: 'transfer',
+        rules: {
+          effect: 'allow',
+          when: {
+            chain_in: [CHAIN_ID],
+            token_in: [{ chain_id: CHAIN_ID, token_id: TOKEN_ID }],
+          },
+          deny_if: { amount_gt: DENY_THRESHOLD },
+        },
+      },
+    ],
+    completion_conditions: [{ type: 'time_elapsed', threshold: PACT_TTL_SECONDS }],
+  };
+}
+
+// ─── API-error parsing ───────────────────────────────────────────────────────
+
+function parseApiError(err: unknown): {
+  http: number | '-';
+  error?: Record<string, unknown>;
+  suggestion?: string;
+} {
+  const response = (
+    err as {
+      response?: {
+        status?: number;
+        data?: { error?: Record<string, unknown>; suggestion?: string };
+      };
+    } | null | undefined
+  )?.response;
+  return {
+    http: response?.status ?? '-',
+    error: response?.data?.error,
+    suggestion: response?.data?.suggestion,
+  };
+}
+
+// ─── Pact activation polling ─────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 5_000;
 const TERMINAL_STATUSES = new Set(['rejected', 'expired', 'revoked', 'completed']);
@@ -61,9 +121,9 @@ async function waitForPactActivation(
   }
 }
 
-async function main(): Promise<void> {
-  const env = loadEnv();
+// ─── Main flow ───────────────────────────────────────────────────────────────
 
+async function main(): Promise<void> {
   const ownerConfig = new Configuration({ apiKey: env.ownerKey, basePath: env.basePath });
   const pactsApi = new PactsApi(ownerConfig);
   const auditApi = new AuditApi(ownerConfig);
@@ -147,14 +207,7 @@ async function main(): Promise<void> {
   console.log('[6/6] Fetching recent audit entries for this wallet...');
   const logs = await auditApi.listAuditLogs(
     env.walletId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     20,
   );
   const items = (logs.data.result as { items?: Array<{ result?: string }> })?.items ?? [];
