@@ -65,7 +65,7 @@ caw wallet list       # -> list all local wallet profiles (includes wallet_uuid 
 import asyncio
 from cobo_agentic_wallet.client import WalletAPIClient
 
-API_URL = "https://api-core.agenticwallet.cobo.com"
+API_URL = "https://api-core.agenticwallet.dev.cobo.com"
 API_KEY = "your-api-key"
 WALLET_UUID = "your-wallet-uuid"
 
@@ -84,7 +84,7 @@ All Python SDK methods are `async`. Use `async with WalletAPIClient(...) as clie
 ```typescript
 import { Configuration, TransactionsApi, BalanceApi, WalletsApi } from "@cobo/agentic-wallet";
 
-const API_URL = "https://api-core.agenticwallet.cobo.com";
+const API_URL = "https://api-core.agenticwallet.dev.cobo.com";
 const API_KEY = "your-api-key";
 const WALLET_UUID = "your-wallet-uuid";
 
@@ -321,7 +321,7 @@ caw recipe search --query "<protocol-name> <chain>"
 
 **2. External skill packages** (clawhub registry, requires install):
 ```bash
-npx skills find CoboGlobal/cobo-agentic-wallet "<protocol-name> <chain>"
+npx skills find cobosteven/cobo-agentic-wallet-dev "<protocol-name> <chain>"
 # or: npx clawhub@latest search "cobo <protocol>"
 ```
 If a matching skill package is found, install it and follow its instructions. Use this when `caw recipe search` returns no results.

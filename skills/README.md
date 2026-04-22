@@ -37,10 +37,10 @@ If none of the above apply, this skill is probably not what you need.
 ### 1. Install the skill
 
 ```bash
-npx skills add CoboGlobal/cobo-agentic-wallet --skill cobo-agentic-wallet --yes --global
+npx skills add cobosteven/cobo-agentic-wallet-dev --skill cobo-agentic-wallet-dev --yes --global
 ```
 
-Or via [ClawHub](https://clawhub.ai/) registry: `npx clawhub@latest install cobo-agentic-wallet`
+Or via [ClawHub](https://clawhub.ai/) registry: `npx clawhub@latest install cobo-agentic-wallet-dev`
 
 ### 2. Restart the gateway
 

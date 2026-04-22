@@ -1,6 +1,6 @@
 # Onboarding
 
-Covers installation, the `caw onboard` interactive loop, environment configuration, and wallet pairing.
+Covers installation, the `caw onboard --env dev` interactive loop, environment configuration, and wallet pairing.
 
 ## 1. Install caw
 
@@ -10,7 +10,7 @@ Run `./scripts/bootstrap-env.sh --only caw` to install caw. caw → `~/.cobo-age
 
 ```bash
 export PATH="$HOME/.cobo-agentic-wallet/bin:$PATH"
-caw onboard
+caw onboard --env dev
 ```
 
 If the user **already has** an invitation code before starting, pass it on the **first call** so provisioning runs immediately — you skip the “get an invitation code” step below.
@@ -18,15 +18,15 @@ If the user **already has** an invitation code before starting, pass it on the *
 ```bash
 # Invitation code from Cobo — you own the wallet initially, with limited functionality.
 # Your owner can pair the wallet later to unlock full functionality (see Pairing below).
-caw onboard --invitation-code <CODE>
+caw onboard --env dev --invitation-code <CODE>
 ```
 
 **Agent name (required):** Always pass `--agent-name <NAME>` on the first onboard call (for example together with `--invitation-code`). This sets the agent display name when provisioning and the new wallet is created with display name `<NAME>'s Wallet` (e.g. `Lobster's Wallet`). If you don't know the agent's name, ask the user before calling onboard. After you have a `session_id`, keep passing the same `--session-id` on follow-up calls.
 
-> **CRITICAL:** The shortcut commands above are for the **first call only**. Once you have called `caw onboard` and received a `session_id`, you **MUST** include `--session-id <SESSION_ID>` on **every** subsequent call — even when adding `--invitation-code`. Omitting `--session-id` starts a brand-new session, discarding prior progress and TSS prewarm work.
+> **CRITICAL:** The shortcut commands above are for the **first call only**. Once you have called `caw onboard --env dev` and received a `session_id`, you **MUST** include `--session-id <SESSION_ID>` on **every** subsequent call — even when adding `--invitation-code`. Omitting `--session-id` starts a brand-new session, discarding prior progress and TSS prewarm work.
 
 **How the interactive loop works:**
-1. Call `caw onboard` — read `phase`, `prompts`, `needs_input`, `next_action`, and `session_id`.
+1. Call `caw onboard --env dev` — read `phase`, `prompts`, `needs_input`, `next_action`, and `session_id`.
 2. On each follow-up, pass `--session-id` with the **latest** `session_id` from the previous response (and `--api-url` if you used it). If the response says the session was not found and a new one was created, use that **new** `session_id`.
 3. When `needs_input` is true, pass `--answers` as JSON whose keys match `prompts[].id` (etc., depending on phase).
 4. Repeat until onboarding finishes — typically `wallet_status` is `active` and/or `phase` is `wallet_active`. If input is invalid, use `last_error` and resubmit with corrected `--answers`.
@@ -35,7 +35,7 @@ caw onboard --invitation-code <CODE>
 Example follow-up call:
 
 ```bash
-caw onboard --session-id <SESSION_ID>
+caw onboard --env dev --session-id <SESSION_ID>
 ```
 
 Use `phase` + `bootstrap_stage` + `wallet_status` to track progress.
